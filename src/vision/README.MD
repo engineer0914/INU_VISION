@@ -1,7 +1,5 @@
-<video width="100%" controls>
-  <source src="INU_VISION_TEST.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+<!-- 유튜브에 올렸을 경우 썸네일에 링크 걸기 -->
+[![비전 테스트 영상](https://img.youtube.com/vi/유튜브영상ID/0.jpg)](https://www.youtube.com/watch?v=유튜브영상ID)
 
 
 
