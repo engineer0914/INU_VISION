@@ -1,0 +1,12 @@
+yolo_3d_node:
+  ros__parameters:
+    color_topic: "/camera/camera/color/image_raw"
+    depth_topic: "/camera/camera/aligned_depth_to_color/image_raw"
+    camera_info_topic: "/camera/camera/aligned_depth_to_color/camera_info"
+    
+    # 👇 여기를 절대 경로로 변경!
+    model_path: "/home/orinagx/ros2_ws/src/vision/yolo_models/train1_05_04/weights/best.pt"
+    
+    conf_thres: 0.5
+    device: "cuda:0"
+    publish_debug_image: true
