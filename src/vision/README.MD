@@ -4,16 +4,16 @@
 sb
 isreal
 ros2 run realsense2_camera realsense2_camera_node --ros-args \
-  -p enable_color:=true \
-  -p enable_depth:=true \
-  -p enable_infra1:=false \
-  -p enable_infra2:=false \
-  -p align_depth.enable:=true \
-  -p enable_sync:=true \
-  -p depth_module.depth_profile:=640x480x30 \
-  -p rgb_camera.color_profile:=640x480x30 \
-  -p enable_gyro:=false \
-  -p enable_accel:=false
+-p enable_color:=true \
+-p enable_depth:=true \
+-p enable_infra1:=false \
+-p enable_infra2:=false \
+-p align_depth.enable:=true \
+-p enable_sync:=true \
+-p depth_module.depth_profile:="640x480x30" \
+-p rgb_camera.color_profile:="640x480x30" \
+-p enable_gyro:=false \
+-p enable_accel:=false
 ```
 
 # 카메라 확인
