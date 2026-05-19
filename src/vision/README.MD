@@ -3,9 +3,9 @@
 
 
 
-카메라 열기
+# 카메라 열기
 
-```jsx
+```bash
 sb
 isreal
 ros2 run realsense2_camera realsense2_camera_node --ros-args \
@@ -16,17 +16,19 @@ ros2 run realsense2_camera realsense2_camera_node --ros-args \
   -p align_depth.enable:=true \
   -p enable_sync:=true \
   -p depth_module.depth_profile:=640x480x30 \
-  -p rgb_camera.color_profile:=640x480x30
+  -p rgb_camera.color_profile:=640x480x30 \
+  -p enable_gyro:=false \
+  -p enable_accel:=false
 ```
 
-카메라 확인
+# 카메라 확인
 
 ```jsx
 ros2 topic echo /camera/camera/color/camera_info --once
 ros2 topic echo /camera/camera/aligned_depth_to_color/camera_info --once
 ```
 
-검출중
+# 검출 시작
 
 ```jsx
 ros2 run vision yolo_3d_node --ros-args \
@@ -67,7 +69,7 @@ ros2 run vision yolo_3d_node --ros-args \
   -p estimation_center_top_n:=3
 ```
 
-검출 결과 확인
+# 검출 결과 확인
 
 ```jsx
 sb
@@ -75,25 +77,25 @@ is
 ros2 run rqt_image_view rqt_image_view
 ```
 
-포즈추정시작
+# 포즈추정시작
 
 ```jsx
 ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: 'st_est'}"
 ```
 
-valid확인
+# valid확인
 
 ```jsx
 ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: 'vw'}"
 ```
 
-특정객체 포즈 요구
+# 특정객체 포즈 요구
 
 ```jsx
 ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: '2g'}"
 ```
 
-포즈추정중지
+# 포즈추정중지
 
 ```jsx
 ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: 'sp_est'}"
