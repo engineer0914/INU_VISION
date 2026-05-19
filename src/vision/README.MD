@@ -83,14 +83,14 @@ ros2 run rqt_image_view rqt_image_view
 
 
 
-# valid확인
+# 5.valid확인
 현재 이미지내 어떤 객체들이 보이는지 확인
 
 ```bash
 ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: 'vw'}"
 ```
 
-# 특정객체 포즈 요구
+# 6.특정객체 포즈 요구
 2*2 초록 브릭의 4D출력 요청시 다음 이용.
 이외 comand: 측 문자열 변경시 사용가능 (예:2r 2g 2b 2y 4r 4g 4b 4y)
 
