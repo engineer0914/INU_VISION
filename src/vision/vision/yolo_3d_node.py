@@ -6,6 +6,7 @@ from collections import deque
 import cv2
 import numpy as np
 
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
@@ -16,6 +17,7 @@ from std_msgs.msg import Float32
 from cv_bridge import CvBridge
 import message_filters
 from ultralytics import YOLO
+import torch
 
 from msgs_pkg.srv import PoseEstimator
 
@@ -33,7 +35,11 @@ class Yolo3DNode(Node):
 
         self.declare_parameter('model_path', 'yolo_models/train1_05_04/weights/best.pt')
         self.declare_parameter('conf_thres', 0.5)
-        self.declare_parameter('device', 'cuda:0')
+
+        # GPU가 사용 가능하면 'cuda:0', 아니면 'cpu'를 기본값으로 설정
+        default_device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+        self.declare_parameter('device', default_device)
+
         self.declare_parameter('publish_debug_image', True)
 
         # ROI / depth parameters
