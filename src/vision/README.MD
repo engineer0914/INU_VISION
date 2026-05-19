@@ -1,8 +1,14 @@
+# 환경내 requirements 설치
+```bash
+# 현재 위치가 ~/ros2_ws 일 때
+pip install -r src/vision/requirements.txt
+```
+
 # 카메라 열기
 
 ```bash
 sb
-isreal
+is
 ros2 run realsense2_camera realsense2_camera_node --ros-args \
 -p enable_color:=true \
 -p enable_depth:=true \
@@ -18,14 +24,14 @@ ros2 run realsense2_camera realsense2_camera_node --ros-args \
 
 # 카메라 확인
 
-```jsx
+```bash
 ros2 topic echo /camera/camera/color/camera_info --once
 ros2 topic echo /camera/camera/aligned_depth_to_color/camera_info --once
 ```
 
-# 검출 시작
+# 검출 노드
 
-```jsx
+```bash
 ros2 run vision yolo_3d_node --ros-args \
   -p model_path:=/home/orinagx/ros2_ws/src/vision/yolo_models/train1_05_04/weights/best.pt \
   -p color_topic:=/camera/camera/color/image_raw \
@@ -66,7 +72,7 @@ ros2 run vision yolo_3d_node --ros-args \
 
 # 검출 결과 확인
 
-```jsx
+```bash
 sb
 is
 ros2 run rqt_image_view rqt_image_view
@@ -74,24 +80,24 @@ ros2 run rqt_image_view rqt_image_view
 
 # 포즈추정시작
 
-```jsx
+```bash
 ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: 'st_est'}"
 ```
 
 # valid확인
 
-```jsx
+```bash
 ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: 'vw'}"
 ```
 
 # 특정객체 포즈 요구
 
-```jsx
+```bash
 ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: '2g'}"
 ```
 
 # 포즈추정중지
 
-```jsx
+```bash
 ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: 'sp_est'}"
 ```
