@@ -1,10 +1,10 @@
-# 환경내 requirements 설치
+# 1.환경내 requirements 설치
 ```bash
 # 현재 위치가 ~/ros2_ws 일 때
 pip install -r src/vision/requirements.txt
 ```
 
-# 카메라 열기
+# 2.카메라 열기
 
 ```bash
 sb
@@ -22,14 +22,16 @@ ros2 run realsense2_camera realsense2_camera_node --ros-args \
 -p enable_accel:=false
 ```
 
-# 카메라 확인
+# 2-1 카메라 상태 확인
+토픽이 인식된다면 카메라는 정상입니다.
 
 ```bash
 ros2 topic echo /camera/camera/color/camera_info --once
 ros2 topic echo /camera/camera/aligned_depth_to_color/camera_info --once
 ```
 
-# 검출 노드
+# 3.검출 노드
+아래를 동작 시키면, yolo 이후 처리가 같이 들어가 결과가 보입니다.
 
 ```bash
 ros2 run vision yolo_3d_node --ros-args \
@@ -70,7 +72,8 @@ ros2 run vision yolo_3d_node --ros-args \
   -p estimation_center_top_n:=3
 ```
 
-# 검출 결과 확인
+# 4.검출 결과 확인
+rqt 이미지 뷰어로 현재 상태를 확인 가능
 
 ```bash
 sb
@@ -78,26 +81,37 @@ is
 ros2 run rqt_image_view rqt_image_view
 ```
 
-# 포즈추정시작
 
-```bash
-ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: 'st_est'}"
-```
 
 # valid확인
+현재 이미지내 어떤 객체들이 보이는지 확인
 
 ```bash
 ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: 'vw'}"
 ```
 
 # 특정객체 포즈 요구
+2*2 초록 브릭의 4D출력 요청시 다음 이용.
+이외 comand: 측 문자열 변경시 사용가능 (예:2r 2g 2b 2y 4r 4g 4b 4y)
 
 ```bash
 ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: '2g'}"
 ```
 
-# 포즈추정중지
 
+---
+비 중요
+---
+
+# 포즈추정중지
+GPU 사용량 최적화를 위해 포즈 추정 중지시
 ```bash
 ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: 'sp_est'}"
+```
+
+# 포즈추정 다시 시작
+기본적으로 1번 실행시 같이 실행되지만 최적화를 위해 잠시 중지후 다시 시작할때
+
+```bash
+ros2 service call /vision/pose_estimator msgs_pkg/srv/PoseEstimator "{command: 'st_est'}"
 ```
