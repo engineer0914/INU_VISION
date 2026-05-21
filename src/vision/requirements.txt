@@ -6,5 +6,5 @@ torch==2.12.0
 torchvision==0.27.0
 ultralytics==8.4.51
 ultralytics-thop==2.0.19
-scipy==1.8.0
+scipy==1.11.4
 pandas==2.3.3
