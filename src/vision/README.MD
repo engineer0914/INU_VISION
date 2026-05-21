@@ -1,3 +1,7 @@
+## Demo
+
+<img src="INU_VISION_TEST.gif" width="640">
+
 # 1.환경내 requirements 설치
 ```bash
 # 현재 위치가 ~/ros2_ws 일 때
