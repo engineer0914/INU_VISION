@@ -1,16 +1,32 @@
 # ROS2 INU VISION Workspace
 
-* `vision`: YOLO 기반 객체 인식 및 비전 처리 패키지
-*    👉 **[Vision 패키지 설명서 및 테스트 영상 보러가기](src/vision/README.MD)**
-* `msgs_pkg`: 사용자 정의 메시지 패키지
-* `launch_pkg`: 통합 실행 패키지
+0615 업데이트:
+- AMR 테스트용 시야내 브릭 피킹 + 조립체(인지 모델 X) 중심축 추출 구조
+- 객체 지향 구조 변경
+    INUVisionCall = 호출용 함수 + 객체 지향 구조
+    INUVisionLib  = 하위 함수 제작 및 전처리 구조 모음 + 욜로 모델 경로 설정
+
+## **호출 구조**
+
+**단일 브릭의 포지션 + yaw 값**
+ID 1~8까지 호출 가능
+```
+ros2 service call /get_target_pose arm_interfaces/srv/GetTargetPose "{target_color: '1'}"
+```
+
+비고:
+현재 카메라내 보이는 단일 브릭의 위치와 요값을 반환함
+객체의 6D 추가 개발 예정
 
 
-### 주요문제: ARM코어 기반 기기내 realsense imu센서 커널 동작 불가
-### 해결책: 커널 우회
+**조립체의 중심 좌표 + 요값 반환 구조**
+```
+ros2 service call /get_target_pose arm_interfaces/srv/GetTargetPose "{target_color: '999'}"
+```
 
-* RSUSB 백엔드 빌드 및 커널 우회 설정 구조 설정
-*    👉 https://github.com/engineer0914/realsense_RSUSB_Backend_Build
+비고:
+시야내 바닥 기준 돌출된 객체의 X,Y,Z,YAW 값 반환
+ - 카메라내 단일 조립체의 중심 축을 기준으로 각도 출력
+ - 조립체 모델 추가 제작 이후 업데이트
 
-### 젯슨 파이토치 설치 링크
-*    👉 https://forums.developer.nvidia.com/t/pytorch-for-jetson/72048
+
