@@ -9,7 +9,7 @@
 ## **호출 구조**
 
 **단일 브릭의 포지션 + yaw 값**
-ID 1~8까지 호출 가능
+ID 1~8까지 호출 가능 color에 id로 호출
 ```
 ros2 service call /get_target_pose arm_interfaces/srv/GetTargetPose "{target_color: '1'}"
 ```
