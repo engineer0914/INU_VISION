@@ -3,6 +3,7 @@ import yaml
 import pprint
 import glob
 import cv2
+import math
 
 import torch
 import open3d as o3d
@@ -10,10 +11,6 @@ from sklearn.cluster import DBSCAN
 from ultralytics import YOLO
 
 import pyrealsense2 as rs
-
-import matplotlib
-matplotlib.use('Agg')
-
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import pandas as pd
@@ -4179,8 +4176,6 @@ def visualize_class_pose_on_rgb(
 
 
 
-
-
 ################################### 실행 함수
 
 def search_wide(color_rgb, depth, intrinsics, scale, V_visualize=True):
@@ -4199,6 +4194,8 @@ def search_wide(color_rgb, depth, intrinsics, scale, V_visualize=True):
     MODEL_PATH = os.path.join(
         BASE_DIR,
         "models",
+        "yolo_models",
+        "duplo_2_low_2",
         "best.pt"
     )
 
@@ -4209,6 +4206,9 @@ def search_wide(color_rgb, depth, intrinsics, scale, V_visualize=True):
         raise FileNotFoundError(f"YOLO model not found: {MODEL_PATH}")
 
     model = YOLO(MODEL_PATH)
+
+
+    # model = YOLO("yolo_models/duplo_2_low_2/weights/best.pt")
     # model = YOLO("yolo_models/manip_segmentor_0528.pt")
     target_classes = [0, 1, 3, 4, 5, 6, 8, 9]
 
@@ -4289,7 +4289,7 @@ def search_wide(color_rgb, depth, intrinsics, scale, V_visualize=True):
         color_img_bgr=color_img_bgr, 
         ratio_threshold=1.5, 
         overlap_threshold=0.20, 
-        visualize=V_visualize
+        visualize=False
     )
 
     # final_objects_after = copy.deepcopy(final_objects)
@@ -4583,28 +4583,11 @@ def search_assembly(
         center_xyz_m = np.asarray(obj["center_xyz"], dtype=np.float64)
         center_xyz_mm = center_xyz_m * 1000.0
 
-        # ============================================================
-        # 💡 [조립체 전용 축 설정 및 12시(0도) 기준 각도 변환] 
-        # ============================================================
-        assembly_target_axis = "minor"  # 장축을 잡을 거면 "major", 단축을 잡을 거면 "minor"
+        # 2D contour PCA 기준 yaw
+        yaw_deg = normalize_yaw_deg_180(obj.get("angle_deg", 0.0))
 
-        # 1. OpenCV 이미지 좌표계 각도 (3시 방향 0도, 아래쪽이 양수)
-        base_angle = obj.get("angle_deg", 0.0)
-
-        # 2. 로봇 제어 기준 각도로 변환 (12시 방향 0도, 시계 방향 양수)
-        # 이미지의 3시(0도) -> 로봇의 3시(+90도)가 되도록 90도를 더함
-        robot_yaw = base_angle + 90.0 
-
-        # 3. 타겟 축(장축/단축) 반영
-        if assembly_target_axis == "minor":
-            # 단축을 잡기 위해 90도를 추가 회전
-            final_yaw = robot_yaw + 90.0
-        else:
-            final_yaw = robot_yaw
-
-        # 4. -180 ~ 180도 범위로 깔끔하게 정리 (10시 방향 등은 음수로)
-        yaw_deg = normalize_yaw_deg_180(final_yaw)
-        # ============================================================
+        # assembly 모드는 바닥 기준 덩어리이므로 roll/pitch는 일단 0으로 둠
+        # 나중에 plane normal 기반으로 확장 가능
         roll_deg = 0.0
         pitch_deg = 0.0
 
@@ -4668,3 +4651,329 @@ def search_assembly(
         )
 
     return pose_table, class_index
+
+
+
+
+def search_assembly_fine(color_rgb, depth, intrinsics, scale, V_visualize=True):
+    img_rgb = color_rgb.copy()
+    # 1. 원본 이미지 복사 및 타입 안전성 확보
+    if img_rgb.dtype != np.uint8:
+        img_rgb = np.clip(img_rgb, 0, 255).astype(np.uint8)
+
+    # ============================================================
+    # [NEW] Step 0: RANSAC 뎁스 기반 바닥 제거
+    # 바닥면을 찾아 해당 영역을 검은색(0,0,0)으로 칠합니다.
+    # ============================================================
+    # 0-1. 뎁스를 3D 공간 좌표로 변환
+    xyz_map, valid_mask = depth_to_xyz_map(depth, scale, intrinsics)
+    valid_points = xyz_map[valid_mask]
+
+    # 0-2. RANSAC 평면 피팅 (바닥 찾기)
+    best_plane, _ = fit_plane_ransac_numpy(valid_points, distance_threshold=0.006)
+
+    # 0-3. 바닥 평면으로부터의 Z축 거리(높이) 계산
+    dist_map = compute_plane_distance_map(xyz_map, valid_mask, best_plane)
+
+# 0-4. 바닥에서 1cm(0.01m) 이상 튀어나온 영역만 마스킹 (1cm 미만은 바닥으로 간주)
+    ransac_mask = (dist_map > 0.010).astype(np.uint8) * 255
+    
+    # 노이즈를 살짝 지워주기 위해 모폴로지 열기(Open) 적용
+    kernel_open = np.ones((9, 9), np.uint8)
+    ransac_mask = cv2.morphologyEx(ransac_mask, cv2.MORPH_OPEN, kernel_open)
+    
+    # 닫기(Close)를 통해 가까운 덩어리들을 1차로 뭉치기
+    kernel_close = np.ones((9, 9), np.uint8)
+    ransac_mask = cv2.morphologyEx(ransac_mask, cv2.MORPH_CLOSE, kernel_close)
+
+    # --------------------------------------------------------
+    # 1. Dilation (팽창) 적용: 테두리 복구 및 덩어리들 확실히 연결
+    # --------------------------------------------------------
+    kernel_dilate = np.ones((5, 5), np.uint8)
+    ransac_mask = cv2.dilate(ransac_mask, kernel_dilate, iterations=1)
+
+    # --------------------------------------------------------
+    # 2. [NEW] Convex Hull (볼록 선체) 적용
+    # 오목하게 파인 부분을 고무줄로 묶듯 팽팽하게 채워서 완벽한 한 덩어리로 만듭니다.
+    # --------------------------------------------------------
+    # 먼저 현재 마스크에서 윤곽선들을 찾습니다.
+    contours_ransac, _ = cv2.findContours(ransac_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Convex Hull을 그려넣을 빈 캔버스 생성
+    hull_mask = np.zeros_like(ransac_mask)
+    
+    for cnt in contours_ransac:
+        # 너무 작은 자잘한 노이즈는 무시 (필요시 수치 조절)
+        if cv2.contourArea(cnt) < 200:
+            continue
+            
+        # 윤곽선을 감싸는 최소한의 볼록 다각형(Convex Hull) 좌표 계산
+        hull = cv2.convexHull(cnt)
+        
+        # 빈 캔버스에 볼록 다각형을 내부까지 꽉 채워서(thickness=-1) 흰색(255)으로 그림
+        cv2.drawContours(hull_mask, [hull], -1, 255, thickness=-1)
+
+    # --------------------------------------------------------
+    # 3. [NEW] 최종 Padding (추가 팽창) 적용
+    # Convex Hull로 묶인 객체의 바깥쪽에 여유 공간(패딩)을 줍니다.
+    # --------------------------------------------------------
+    kernel_pad = np.ones((7, 7), np.uint8) # 패딩 두께를 늘리려면 (7, 7) 등으로 조절
+    ransac_mask = cv2.dilate(hull_mask, kernel_pad, iterations=1) # 다음 단계로 넘기기 위해 변수명 원상복구 
+    # 0-5. RGB 이미지에 마스크 씌우기 (바닥 부분은 완전히 검정색으로)
+    img_rgb = cv2.bitwise_and(img_rgb, img_rgb, mask=ransac_mask)
+
+    # ============================================================
+    # Step 1: 양방향 필터 (Bilateral Filter) 적용
+    # ============================================================
+    filtered_rgb = cv2.bilateralFilter(img_rgb, d=5, sigmaColor=50, sigmaSpace=50)
+
+    # ============================================================
+
+    # Step 2: LAB 색공간 변환 및 채널 분리
+    # (참고: 앞서 배경을 칠한 검정색은 LAB에서 L=0, a=128, b=128이 됩니다!)
+    # ============================================================
+
+    lab = cv2.cvtColor(filtered_rgb, cv2.COLOR_RGB2LAB)
+    L, a, b = cv2.split(lab)
+
+    # ============================================================
+    # Step 3: 핵심 전처리 - 128(무채색 배경)과의 절대 거리 계산
+    # ============================================================
+    a_dist = cv2.absdiff(a, 128)
+    b_dist = cv2.absdiff(b, 128)
+
+    # ============================================================
+    # Step 4: Min-Max 정규화 (상대평가 스케일링)
+    # ============================================================
+
+    a_norm = cv2.normalize(a_dist, None, 0, 255, cv2.NORM_MINMAX)
+    b_norm = cv2.normalize(b_dist, None, 0, 255, cv2.NORM_MINMAX)
+
+    # ============================================================
+    # Step 5: a와 b 채널 병합
+    # ============================================================
+    ab_combined = cv2.max(a_norm, b_norm)
+
+    # ============================================================
+    # 시각화 1 (각 단계별 변화 및 RANSAC 마스크 확인)
+    # ============================================================
+    if V_visualize:
+        images = [
+            ("0. RANSAC Floor Mask", ransac_mask, 'gray'),
+            ("1. Masked RGB (Floor Removed)", img_rgb, None),
+            ("2. Bilateral Filtered", filtered_rgb, None),
+            ("3. Raw 'a' Channel", a, 'gray'),
+            ("4. Raw 'b' Channel", b, 'gray'),
+            ("5. |a - 128| Normalized", a_norm, 'gray'),
+            ("6. |b - 128| Normalized", b_norm, 'gray'),
+            ("7. Final Signal for K-Means", ab_combined, 'gray')
+        ]
+
+        plt.figure(figsize=(20, 10))
+        for i, (title, img, cmap) in enumerate(images):
+            # 2행 4열 구조로 배치
+            plt.subplot(2, 4, i + 1)
+            plt.title(title)
+            if cmap == 'gray':
+                plt.imshow(img, cmap='gray', vmin=0, vmax=255)
+            else:
+                plt.imshow(img)
+            plt.axis('off')
+        plt.tight_layout()
+        plt.show()
+
+    # ============================================================
+    # Step 8: 이진화 및 모폴로지 정리
+    # ============================================================
+
+    _, binary_mask = cv2.threshold(ab_combined, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    kernel = np.ones((7, 7), np.uint8)
+    binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, kernel)
+    binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_CLOSE, kernel)
+
+    # ============================================================
+    # Step 9: 윤곽선(Contours) 검출
+    # ============================================================
+
+    contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    result_img = color_rgb.copy() # 원본 이미지 위에 그리기 위해 다시 복사
+
+    # ============================================================
+    # Step 10: 주점(Principal Point) 기준 가장 가까운 타겟 객체 하나만 추출
+    # ============================================================
+
+    # 1. 주점 좌표 미리 추출
+    ppx = int(intrinsics.ppx)
+    ppy = int(intrinsics.ppy)
+
+    # 가장 가까운 객체를 저장할 변수 초기화
+    closest_dist = float('inf')  # 무한대로 초기화
+    best_target = None           # 시각화 및 반환할 최종 데이터 딕셔너리
+
+    # 2. 모든 윤곽선을 돌며 주점과의 거리가 가장 짧은 객체 찾기
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area < 500:
+            continue
+
+        # 무게중심 계산
+        M = cv2.moments(cnt)
+        if M["m00"] == 0:
+            continue
+        cx = int(M["m10"] / M["m00"])
+        cy = int(M["m01"] / M["m00"])
+
+        # 중심점(cx, cy)과 주점(ppx, ppy) 사이의 픽셀 거리 계산
+        dist_to_pp = np.sqrt((cx - ppx)**2 + (cy - ppy)**2)
+
+        # 기존 최소 거리보다 가깝다면 정보 갱신
+        if dist_to_pp < closest_dist:
+            closest_dist = dist_to_pp
+            rect = cv2.minAreaRect(cnt) # OBB 계산
+
+            # 나중에 그리기 위해 필요한 정보 모두 저장
+            best_target = {
+                "contour": cnt,
+                "cx": cx,
+                "cy": cy,
+                "rect": rect,
+                "dist": dist_to_pp
+            }
+
+
+    # 3. 가장 가까운 타겟 하나만 결과 이미지에 시각화 및 3D 좌표 계산
+    target_pose_info = None  # 반환할 최종 데이터
+
+    if best_target is not None:
+        cnt = best_target["contour"]
+        cx, cy = best_target["cx"], best_target["cy"]
+        rect = best_target["rect"]
+
+        # --------------------------------------------------------
+        # 가로, 세로 길이 추출 및 비율 계산
+        # --------------------------------------------------------
+        width = rect[1][0]
+        height = rect[1][1]
+        if width > 0 and height > 0:
+            aspect_ratio = max(width, height) / min(width, height)
+        else:
+            aspect_ratio = 1.0
+
+        # --------------------------------------------------------
+        # 비율에 따른 하이브리드 Yaw 각도 계산 (12시 방향 기준)
+        # --------------------------------------------------------
+        if aspect_ratio >= 1.5:
+            # 1. 길쭉한 객체 (PCA 방식 적용: -90도 ~ +90도)
+            # 윤곽선 좌표들을 PCA 연산에 맞게 변환
+            pts = cnt.reshape(-1, 2).astype(np.float64)
+            mean, eigenvectors = cv2.PCACompute(pts, mean=None)
+            
+            # 가장 분산이 큰 주성분 벡터 (x, y)
+            vx, vy = eigenvectors[0][0], eigenvectors[0][1]
+
+            # 벡터가 무조건 위쪽(-y 방향)을 향하도록 방향 조정
+            if vy > 0:
+                vx, vy = -vx, -vy
+
+            # 12시 방향(0, -1)을 기준으로 각도 계산
+            # math.atan2(x축, y축)을 사용하여 12시 기준 좌/우 각도 도출
+            yaw_deg = math.degrees(math.atan2(vx, -vy))
+            # yaw_deg = yaw_deg
+
+        else:
+            # 2. 정사각형에 가까운 객체 (OBB 방식 적용: 0도 ~ 90도)
+            box_pts = cv2.boxPoints(rect)
+            v1 = box_pts[1] - box_pts[0]
+            v2 = box_pts[2] - box_pts[1]
+
+            # 두 모서리 중 더 긴 쪽을 '세로선(수직 기준선)'으로 간주
+            if math.hypot(v1[0], v1[1]) > math.hypot(v2[0], v2[1]):
+                dx, dy = v1[0], v1[1]
+            else:
+                dx, dy = v2[0], v2[1]
+
+            # 12시 방향(0, -1)과 세로선 사이의 사이각을 0~90도로 절대값 출력
+            yaw_deg = math.degrees(math.atan2(abs(dx), abs(dy)))
+            # yaw_deg =+ 90
+
+        # 소수점 첫째 자리까지만 깔끔하게 정리
+        yaw_deg = round(yaw_deg, 1)
+
+        # --------------------------------------------------------
+        # 3D 좌표(X, Y, Z) 및 높이 중심 계산 (m -> mm)
+        # --------------------------------------------------------
+        x_m, y_m, top_z_m = xyz_map[cy, cx]
+        x_mm = x_m * 1000.0
+        y_mm = y_m * 1000.0
+        top_z_mm = top_z_m * 1000.0
+
+        h_mm = dist_map[cy, cx] * 1000.0
+        center_z_mm = top_z_mm + (h_mm / 2.0)
+
+        # --------------------------------------------------------
+
+        # 외곽선 및 무게중심 그리기 (초록/파랑)
+        cv2.drawContours(result_img, [cnt], -1, (0, 255, 0), 2)
+        cv2.circle(result_img, (cx, cy), 5, (255, 0, 0), -1)
+
+        # OBB 및 OBB 중심점 그리기 (주황)
+        box = cv2.boxPoints(rect)
+        box = np.intp(box)
+        cv2.drawContours(result_img, [box], 0, (255, 165, 0), 2)
+
+        obb_cx, obb_cy = int(rect[0][0]), int(rect[0][1])
+        cv2.circle(result_img, (obb_cx, obb_cy), 5, (255, 165, 0), -1)
+
+        # 텍스트 출력 (비율 정보 추가해서 3줄로 출력)
+        text1 = f"TARGET: Yaw {yaw_deg}deg"
+        text2 = f"XYZ: {x_mm:.1f}, {y_mm:.1f}, {center_z_mm:.1f}"
+        text3 = f"Ratio: {aspect_ratio:.2f}"
+        cv2.putText(result_img, text1, (cx - 40, cy - 35), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(result_img, text2, (cx - 40, cy - 15), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(result_img, text3, (cx - 40, cy + 5), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2, cv2.LINE_AA)
+
+        # 로봇 제어 및 다음 단계를 위한 최종 반환 딕셔너리
+        target_pose_info = {
+            "x_mm": float(x_mm),
+            "y_mm": float(y_mm),
+            "z_mm": float(center_z_mm),
+            "yaw_deg": float(yaw_deg),
+            "object_height_mm": float(h_mm),
+            "top_z_mm": float(top_z_mm),
+            "width_px": float(width),         # 가로(픽셀) 추가
+            "height_px": float(height),       # 세로(픽셀) 추가
+            "aspect_ratio": float(aspect_ratio), # 비율 추가
+            "uv_center": (cx, cy)
+        }
+
+    # 주점(렌즈 중심)에 노란색 십자가 그리기
+    cv2.drawMarker(result_img, (ppx, ppy), color=(255, 255, 0), 
+                   markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
+
+    # ============================================================
+    # 시각화 2 (최종 마스크 및 결과)
+    # ============================================================
+    if V_visualize:
+        images_final = [
+            ("8. Binary Mask (Otsu + Morphology)", binary_mask, 'gray'),
+            ("9. Extracted Contours & Grasping Poses", result_img, None)
+        ]
+
+        plt.figure(figsize=(16, 8))
+        for i, (title, img, cmap) in enumerate(images_final):
+            plt.subplot(1, 2, i + 1)
+            plt.title(title)
+            if cmap == 'gray':
+                plt.imshow(img, cmap='gray', vmin=0, vmax=255)
+            else:
+                plt.imshow(img)
+            plt.axis('off')
+
+        plt.tight_layout()
+        plt.show()
+
+    return result_img, target_pose_info

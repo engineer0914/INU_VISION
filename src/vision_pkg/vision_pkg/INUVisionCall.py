@@ -15,9 +15,7 @@
 # import copy
 # from scipy.spatial.transform import Rotation as R
 
-# import INUVisionLib as ivl
-from vision_pkg import INUVisionLib as ivl
-
+import INUVisionLib as ivl
 
 class VisionManager:
     def __init__(self):
@@ -36,6 +34,7 @@ class VisionManager:
 
             # assembly / depth blob mode
             999: "assembly",
+            888: "assembly_fine",
 
             13: "Magnet",
             34: "Battery",
@@ -53,7 +52,7 @@ class VisionManager:
     # ==========================================
     # 함수 1. 카메라 호출 함수
     # ==========================================
-    def capture_camera(self, mode="mid_50", visualize=False):
+    def capture_camera(self, mode="mid_50", visualize=True):
         devices = ivl.get_realsense_ids()        
         if len(devices) == 0:
             raise RuntimeError("연결된 RealSense 카메라가 없습니다.")
@@ -64,6 +63,7 @@ class VisionManager:
         self.color_rgb, self.depth, self.intrinsics, self.scale = ivl.capture_realsense_data(
             serial_number=target_serial, 
             mode=mode, 
+            warmup_frames=10,
             visualize=visualize
         )
         return self.color_rgb, self.depth, self.intrinsics, self.scale
@@ -71,7 +71,7 @@ class VisionManager:
     # ==========================================
     # 함수 2. 서치 함수
     # ==========================================
-    def run_search(self, visualize=True):
+    def run_search(self, visualize=False):
         print("[INFO] 전체 객체 탐색(Search Wide) 실행 중...")
         if self.color_rgb is None:
             raise RuntimeError("카메라 데이터가 없습니다. 먼저 capture_camera()를 실행하세요.")
@@ -118,14 +118,40 @@ class VisionManager:
 
         return self.pose_table, self.class_index
 
-    # ==========================================
-    # 함수 3. 서치 결과 기반 위치 반환 함수 (ID 변환 포함)
-    # ==========================================
-    def get_pose_by_id(self, target_id, local_id=0):
-        if self.class_index is None:
-            raise RuntimeError("탐색된 인덱스가 없습니다. 먼저 run_search() 또는 run_search_assembly()를 실행하세요.")
+    def run_search_assembly_fine(self, visualize=False):
+        print("[INFO] 정밀 조립체 객체 탐색(Search Assembly Fine) 실행 중...")
 
-        # 1. 입력받은 ID를 문자열 클래스 이름으로 변환
+        if self.color_rgb is None:
+            raise RuntimeError("카메라 데이터가 없습니다. 먼저 capture_camera()를 실행하세요.")
+
+        result_img, target_pose_info = ivl.search_assembly_fine(
+            color_rgb=self.color_rgb,
+            depth=self.depth,
+            intrinsics=self.intrinsics,
+            scale=self.scale,
+            V_visualize=visualize
+        )
+
+        # 기존 pose_table, class_index 포맷에 맞게 래핑하여 저장
+        if target_pose_info is not None:
+            # 기존 get_pose_by_id와 호환되도록 필수 필드 추가
+            target_pose_info["class_name"] = "assembly_fine"
+            target_pose_info["local_id"] = 0
+            target_pose_info["global_idx"] = 0
+
+            self.pose_table = [target_pose_info]
+            self.class_index = {"assembly_fine": [target_pose_info]}
+        else:
+            self.pose_table = []
+            self.class_index = {}
+
+        return self.pose_table, self.class_index
+
+    # ==========================================
+    # 함수 3. 서치 결과 기반 위치 반환 함수 (자동 탐색 라우팅 포함)
+    # ==========================================
+    def get_pose_by_id(self, target_id, local_id=0, visualize=False):
+        # 1. 입력받은 ID를 먼저 문자열 클래스 이름으로 변환
         target_class_name = self.id_to_class.get(target_id)
 
         if target_class_name is None:
@@ -133,6 +159,18 @@ class VisionManager:
             return None
 
         print(f"\n[INFO] 타겟 ID [{target_id}] ➔ 클래스명 ['{target_class_name}'] 변환 완료")
+
+        # ------------------------------------------------------------
+        # [NEW] 타겟 ID에 따른 서치 알고리즘 자동 실행 (Smart Routing)
+        # ------------------------------------------------------------
+        if target_id == 888:
+            self.run_search_assembly_fine(visualize=visualize)
+        elif target_id == 999:
+            self.run_search_assembly(visualize=visualize)
+            
+        # 888, 999가 아닌 일반 객체인데 미리 run_search()를 안 돌린 경우 에러 발생
+        if self.class_index is None:
+            raise RuntimeError("탐색된 인덱스가 없습니다. 일반 객체 탐색 시 먼저 run_search()를 실행하세요.")
 
         pose = None
 
@@ -146,11 +184,11 @@ class VisionManager:
                 local_id=local_id
             )
         except Exception as e:
-            print(f"[INFO] ivl.get_nearest_6d_pose_by_class 사용 실패. 직접 class_index에서 검색합니다.")
-            print(f"[INFO] reason: {e}")
+            # 888이나 999는 여기서 못 찾고 2-B로 넘어갑니다.
+            pass
 
         # ------------------------------------------------------------
-        # 2-B. assembly 모드용 직접 검색 fallback
+        # 2-B. assembly / assembly_fine 모드용 직접 검색 fallback
         # ------------------------------------------------------------
         if pose is None:
             if target_class_name in self.class_index:
@@ -159,10 +197,7 @@ class VisionManager:
                 if local_id < len(pose_list):
                     pose = pose_list[local_id]
                 else:
-                    print(
-                        f"[WARNING] '{target_class_name}' 객체는 {len(pose_list)}개만 있습니다. "
-                        f"요청 local_id={local_id}"
-                    )
+                    print(f"[WARNING] '{target_class_name}' 객체는 {len(pose_list)}개만 있습니다. 요청 local_id={local_id}")
                     return None
             else:
                 print(f"[WARNING] class_index 안에 '{target_class_name}' 클래스가 없습니다.")
@@ -191,6 +226,16 @@ class VisionManager:
                 print("XYZ mm: N/A")
 
             print(f"RPY deg: {roll:.2f}, {pitch:.2f}, {yaw:.2f}")
+
+            # --------------------------------------------------------
+            # [NEW] ID 888 (assembly_fine) 전용 고급 정보 추가 출력
+            # --------------------------------------------------------
+            if target_id == 888:
+                print("--- Additional Info (Fine Mode) ---")
+                # print(f"Object Height : {pose.get('object_height_mm', 0.0):.1f} mm")
+                # print(f"Top Surface Z : {pose.get('top_z_mm', 0.0):.1f} mm")
+                print(f"Aspect Ratio  : {pose.get('aspect_ratio', 1.0):.2f}")
+
             print("----------------------")
 
             return pose
@@ -201,29 +246,29 @@ class VisionManager:
 
 
 
-# ==========================================
-# 4. 단독 실행용 테스트 코드
-# ==========================================
-if __name__ == "__main__":
-    print("\n[INFO] ivc.py 라이브러리 단독 테스트 모드 실행\n")
+# # ==========================================
+# # 4. 단독 실행용 테스트 코드
+# # ==========================================
+# if __name__ == "__main__":
+#     print("\n[INFO] ivc.py 라이브러리 단독 테스트 모드 실행\n")
     
-    # ---------------------------------------------------------
-    # 테스트 방법 1: 클래스를 이용한 깔끔한 테스트
-    # ---------------------------------------------------------
-    vision = VisionManager()
+#     # ---------------------------------------------------------
+#     # 테스트 방법 1: 클래스를 이용한 깔끔한 테스트
+#     # ---------------------------------------------------------
+#     vision = VisionManager()
     
-    try:
-        vision.capture_camera(visualize=False)
-        vision.run_search(visualize=False)
+#     try:
+#         vision.capture_camera(visualize=False)
+#         vision.run_search(visualize=False)
         
-        # 4x2_blue (ID 7) 찾기 테스트
-        test_pose = vision.get_pose_by_id(target_id=7, local_id=0)
+#         # 4x2_blue (ID 7) 찾기 테스트
+#         test_pose = vision.get_pose_by_id(target_id=7, local_id=0)
         
-        if test_pose:
-            print("클래스를 이용한 포즈 추출 성공!")
+#         if test_pose:
+#             print("클래스를 이용한 포즈 추출 성공!")
             
-    except Exception as e:
-        print(f"[ERROR] 테스트 중 오류 발생: {e}")
+#     except Exception as e:
+#         print(f"[ERROR] 테스트 중 오류 발생: {e}")
 
 
 
@@ -246,5 +291,31 @@ if __name__ == "__main__":
 
 #     pose = vision.get_pose_by_id(target_id=999, local_id=0)
 
+# ==========================================
+# 6. 단독 실행용 테스트 코드
+# ==========================================
+if __name__ == "__main__":
+    print("\n[INFO] ivc.py 라이브러리 단독 테스트 모드 실행\n")
+    
+    vision = VisionManager()
+    
+    try:
+        # 카메라 한 번 켜고
+        vision.capture_camera(visualize=False)
+        
+        # 888을 호출하면 내부에서 자동으로 run_search_assembly_fine(visualize=True) 동작!
+        test_pose = vision.get_pose_by_id(target_id=888, local_id=0, visualize=True)
+        
+        if test_pose:
+            print("✅ 888 포즈 추출 성공!")
 
+            x = test_pose.get("x_mm", None)
+            y = test_pose.get("y_mm", None)
+            z = test_pose.get("z_mm", None)
 
+            yaw = test_pose.get("yaw_deg", 0.0)
+            print(f"XYZ mm: {x:.1f}, {y:.1f}, {z:.1f}")
+            print(f"RPY deg: {yaw:.2f}")
+            
+    except Exception as e:
+        print(f"[ERROR] 테스트 중 오류 발생: {e}")
