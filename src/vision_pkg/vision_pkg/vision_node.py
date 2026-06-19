@@ -88,51 +88,51 @@ def main(args=None):
         if rclpy.ok():
             rclpy.shutdown()
 
-# if __name__ == '__main__':
-#     main()
-
-
-
-def main(args=None):
-    rclpy.init(args=args)
-    node = VisionNode()
-
-    try:
-        node.get_logger().info('=== 🚀 페이크(Fake) 테스트 모드 시작 ===')
-        
-        # 1. 가짜 Request와 Response 객체 생성
-        fake_request = GetTargetPose.Request()
-        fake_response = GetTargetPose.Response()
-
-        # 2. 테스트하고 싶은 ID를 여기에 입력! (예: "888", "7", "999")
-        TEST_TARGET_ID = "888" 
-        fake_request.target_color = TEST_TARGET_ID
-
-        node.get_logger().info(f'가짜 요청 생성 완료: 타겟 ID = {fake_request.target_color}')
-
-        # 3. 서비스 콜백 함수에 직접 던져서 파이썬 함수처럼 실행
-        result_response = node.get_pose_cb(fake_request, fake_response)
-
-        # 4. 결과 확인
-        if result_response.success:
-            node.get_logger().info('✅ 테스트 성공! 추출된 데이터:')
-            node.get_logger().info(f'X: {result_response.x:.3f} m')
-            node.get_logger().info(f'Y: {result_response.y:.3f} m')
-            node.get_logger().info(f'Z: {result_response.z:.3f} m')
-            node.get_logger().info(f'Yaw: {result_response.yaw:.1f} deg')
-            node.get_logger().info(f'Class: {result_response.class_name}')
-        else:
-            node.get_logger().error('❌ 테스트 실패: 객체를 찾지 못했거나 에러 발생')
-
-        # 일반적인 ROS 2 서비스 대기 모드로 돌리고 싶다면 아래 주석을 푸세요.
-        # rclpy.spin(node)
-
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
-
 if __name__ == '__main__':
     main()
+
+
+
+# def main(args=None):
+#     rclpy.init(args=args)
+#     node = VisionNode()
+
+#     try:
+#         node.get_logger().info('=== 🚀 페이크(Fake) 테스트 모드 시작 ===')
+        
+#         # 1. 가짜 Request와 Response 객체 생성
+#         fake_request = GetTargetPose.Request()
+#         fake_response = GetTargetPose.Response()
+
+#         # 2. 테스트하고 싶은 ID를 여기에 입력! (예: "888", "7", "999")
+#         TEST_TARGET_ID = "888" 
+#         fake_request.target_color = TEST_TARGET_ID
+
+#         node.get_logger().info(f'가짜 요청 생성 완료: 타겟 ID = {fake_request.target_color}')
+
+#         # 3. 서비스 콜백 함수에 직접 던져서 파이썬 함수처럼 실행
+#         result_response = node.get_pose_cb(fake_request, fake_response)
+
+#         # 4. 결과 확인
+#         if result_response.success:
+#             node.get_logger().info('✅ 테스트 성공! 추출된 데이터:')
+#             node.get_logger().info(f'X: {result_response.x:.3f} m')
+#             node.get_logger().info(f'Y: {result_response.y:.3f} m')
+#             node.get_logger().info(f'Z: {result_response.z:.3f} m')
+#             node.get_logger().info(f'Yaw: {result_response.yaw:.1f} deg')
+#             node.get_logger().info(f'Class: {result_response.class_name}')
+#         else:
+#             node.get_logger().error('❌ 테스트 실패: 객체를 찾지 못했거나 에러 발생')
+
+#         # 일반적인 ROS 2 서비스 대기 모드로 돌리고 싶다면 아래 주석을 푸세요.
+#         # rclpy.spin(node)
+
+#     except KeyboardInterrupt:
+#         pass
+#     finally:
+#         node.destroy_node()
+#         if rclpy.ok():
+#             rclpy.shutdown()
+
+# if __name__ == '__main__':
+#     main()
