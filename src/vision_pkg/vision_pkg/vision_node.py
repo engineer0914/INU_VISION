@@ -34,7 +34,7 @@ class VisionNode(Node):
                 camera_mode="mid_50",
                 brick_search_mode="fine",
                 V_visualize_capture=False,
-                V_visualize_search=False
+                V_visualize_search=True
             )
 
             if result["success"]:
