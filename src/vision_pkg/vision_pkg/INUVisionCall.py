@@ -1,20 +1,3 @@
-# import os
-# import yaml
-# import pprint
-# import glob
-# import torch
-# import cv2
-# import open3d as o3d
-# from sklearn.cluster import DBSCAN
-# from ultralytics import YOLO
-# import pyrealsense2 as rs
-# import matplotlib.pyplot as plt
-# from matplotlib import cm
-# import pandas as pd
-# import numpy as np
-# import copy
-# from scipy.spatial.transform import Rotation as R
-
 import INUVisionLib as ivl
 
 class VisionManager:
@@ -27,33 +10,42 @@ class VisionManager:
         self.pose_table = None
         self.class_index = None
 
-        # ID -> 클래스 이름 매핑 딕셔너리
-        self.id_to_class = {
-            1: "2x2_red", 2: "2x2_green", 3: "2x2_blue", 4: "2x2_yellow",
-            5: "4x2_red", 6: "4x2_green", 7: "4x2_blue", 8: "4x2_yellow",
+        self.target = None
 
-            # assembly / depth blob mode
+        self.yolo_dir_component = 'yolo_models/Component_Model_ver1.0/Model_s_ver2.0/best.pt'
+        self.yolo_dir_brick = 'yolo_models/Block_m_ver1.0/Block_s_ver1.0/weights/best.pt'
+
+        self.id_to_class = {
+            1: "2x2_red", 
+            2: "2x2_green", 
+            3: "2x2_blue", 
+            4: "2x2_yellow",
+            5: "4x2_red", 
+            6: "4x2_green", 
+            7: "4x2_blue", 
+            8: "4x2_yellow",
+
             999: "assembly",
             888: "assembly_fine",
 
             13: "Magnet",
             34: "Battery",
-            81: "estop",
-            241: "traffic light",
+            81: "Estop",
+            241: "Trafficlight",
             442: "carrot",
             462: "small tree",
             711: "hammer",
-            4482: "big carrot",
+            4482: "bigcarrot",
             8518: "burger",
             46262: "bigtree",
             48132: "icecream"
         }
 
-    # ==========================================
-    # 함수 1. 카메라 호출 함수
-    # ==========================================
-    def capture_camera(self, mode="mid_50", visualize=True):
-        devices = ivl.get_realsense_ids()        
+
+    def capture_camera(self, mode="mid_50", V_visualize=False):
+
+        devices = ivl.get_realsense_ids()
+
         if len(devices) == 0:
             raise RuntimeError("연결된 RealSense 카메라가 없습니다.")
         target_serial = list(devices.keys())[0]
@@ -64,185 +56,271 @@ class VisionManager:
             serial_number=target_serial, 
             mode=mode, 
             warmup_frames=10,
-            visualize=visualize
+            visualize=V_visualize
         )
         return self.color_rgb, self.depth, self.intrinsics, self.scale
 
-    # ==========================================
-    # 함수 2. 서치 함수
-    # ==========================================
-    def run_search(self, visualize=False):
-        print("[INFO] 전체 객체 탐색(Search Wide) 실행 중...")
+    def run_search(self, mode, V_visualize=False):
+
         if self.color_rgb is None:
             raise RuntimeError("카메라 데이터가 없습니다. 먼저 capture_camera()를 실행하세요.")
 
-        # 보관함에 있던 카메라 데이터를 꺼내서 서치 함수에 넣음
-        self.pose_table, self.class_index = ivl.search_wide(
-            self.color_rgb, self.depth, self.intrinsics, self.scale, V_visualize=visualize
-        )
+        self.pose_table, self.class_index = ivl.search_bricks(mode, 
+                                                            self.yolo_dir_brick, 
+                                                            self.color_rgb, 
+                                                            self.depth, 
+                                                            self.intrinsics, 
+                                                            self.scale, 
+                                                            V_visualize=V_visualize
+                                                            )
+
         return self.pose_table, self.class_index
 
-    # ==========================================
-    # 함수 2-1. 조립체 / 덩어리 서치 함수
-    # ==========================================
-    def run_search_assembly(
-        self,
-        visualize=False,
-        class_name="assembly",
-        ransac_distance_threshold=0.006,
-        object_min_plane_dist=0.010,
-        min_area_px=80,
-        morph_open_ksize=3,
-        morph_close_ksize=5,
-        min_contour_area=80
-    ):
+    def run_search_assembly(self,V_visualize=False):
+
         print("[INFO] 조립체 객체 탐색(Search Assembly) 실행 중...")
 
         if self.color_rgb is None:
             raise RuntimeError("카메라 데이터가 없습니다. 먼저 capture_camera()를 실행하세요.")
 
-        self.pose_table, self.class_index = ivl.search_assembly(
-            color_rgb=self.color_rgb,
-            depth=self.depth,
-            intrinsics=self.intrinsics,
-            scale=self.scale,
-            V_visualize=visualize,
-            class_name=class_name,
-            ransac_distance_threshold=ransac_distance_threshold,
-            object_min_plane_dist=object_min_plane_dist,
-            min_area_px=min_area_px,
-            morph_open_ksize=morph_open_ksize,
-            morph_close_ksize=morph_close_ksize,
-            min_contour_area=min_contour_area
-        )
+        self.pose_table, self.class_index = ivl.search_assembly(self.color_rgb,
+                                                                self.depth,
+                                                                self.intrinsics,
+                                                                self.scale,
+                                                                yolo_model=None,
+                                                                yolo_dir=self.yolo_dir_component,
+                                                                V_visualize=V_visualize,
+
+                                                                # YOLO 설정
+                                                                target_classes=None,
+                                                                target_class_names=None,
+                                                                conf_thres=0.7,
+                                                                iou_thres=0.3,
+                                                                imgsz=640,
+                                                                device=0,
+
+                                                                # mask 후처리
+                                                                yolo_mask_thresh=0.5,
+                                                                morph_open_ksize=3,
+                                                                morph_close_ksize=5,
+                                                                min_contour_area=80,
+
+                                                                # depth 검사
+                                                                min_valid_depth_points=30
+                                                            )
 
         return self.pose_table, self.class_index
 
-    def run_search_assembly_fine(self, visualize=False):
-        print("[INFO] 정밀 조립체 객체 탐색(Search Assembly Fine) 실행 중...")
+    def get_pose_by_id(self, target_id, local_id=0):
+        """
+        target_id를 클래스 이름으로 변환한 뒤,
+        이미 실행된 self.class_index에서 해당 객체 pose를 찾아
+        X, Y, Z, YAW를 반환합니다.
 
-        if self.color_rgb is None:
-            raise RuntimeError("카메라 데이터가 없습니다. 먼저 capture_camera()를 실행하세요.")
+        반환:
+            X, Y, Z: mm
+            YAW: deg
 
-        result_img, target_pose_info = ivl.search_assembly_fine(
-            color_rgb=self.color_rgb,
-            depth=self.depth,
-            intrinsics=self.intrinsics,
-            scale=self.scale,
-            V_visualize=visualize
-        )
+        실패 시:
+            None, None, None, None
+        """
 
-        # 기존 pose_table, class_index 포맷에 맞게 래핑하여 저장
-        if target_pose_info is not None:
-            # 기존 get_pose_by_id와 호환되도록 필수 필드 추가
-            target_pose_info["class_name"] = "assembly_fine"
-            target_pose_info["local_id"] = 0
-            target_pose_info["global_idx"] = 0
-
-            self.pose_table = [target_pose_info]
-            self.class_index = {"assembly_fine": [target_pose_info]}
-        else:
-            self.pose_table = []
-            self.class_index = {}
-
-        return self.pose_table, self.class_index
-
-    # ==========================================
-    # 함수 3. 서치 결과 기반 위치 반환 함수 (자동 탐색 라우팅 포함)
-    # ==========================================
-    def get_pose_by_id(self, target_id, local_id=0, visualize=False):
-        # 1. 입력받은 ID를 먼저 문자열 클래스 이름으로 변환
+        # ------------------------------------------------------------
+        # 1. ID -> class name 변환
+        # ------------------------------------------------------------
         target_class_name = self.id_to_class.get(target_id)
 
         if target_class_name is None:
             print(f"[ERROR] 등록되지 않은 ID 번호입니다: {target_id}")
-            return None
+            print(f"[INFO] 등록된 ID 목록: {list(self.id_to_class.keys())}")
+            return None, None, None, None
 
         print(f"\n[INFO] 타겟 ID [{target_id}] ➔ 클래스명 ['{target_class_name}'] 변환 완료")
 
         # ------------------------------------------------------------
-        # [NEW] 타겟 ID에 따른 서치 알고리즘 자동 실행 (Smart Routing)
+        # 2. class_index 존재 확인
         # ------------------------------------------------------------
-        if target_id == 888:
-            self.run_search_assembly_fine(visualize=visualize)
-        elif target_id == 999:
-            self.run_search_assembly(visualize=visualize)
-            
-        # 888, 999가 아닌 일반 객체인데 미리 run_search()를 안 돌린 경우 에러 발생
         if self.class_index is None:
-            raise RuntimeError("탐색된 인덱스가 없습니다. 일반 객체 탐색 시 먼저 run_search()를 실행하세요.")
-
-        pose = None
+            print("[ERROR] class_index가 없습니다.")
+            print("먼저 run_search() 또는 run_search_assembly()를 실행하세요.")
+            return None, None, None, None
 
         # ------------------------------------------------------------
-        # 2-A. 기존 search_wide용 ivl 함수 먼저 시도
+        # 3. class_index에서 target_class_name 찾기
+        # ------------------------------------------------------------
+        X, Y, Z, YAW = ivl.get_target_grasp_pose(
+            self.class_index,
+            target_class_name
+        )
+
+        return X, Y, Z, YAW
+
+    def run_pipeline_by_id(
+        self,
+        target_id,
+        local_id=0,
+        camera_mode="mid_50",
+        brick_search_mode="fine",
+        V_visualize_capture=False,
+        V_visualize_search=False
+    ):
+        """
+        target_id를 받아서:
+        1. ID -> class name 변환
+        2. 카메라 캡처
+        3. ID 그룹에 따라 run_search / run_search_assembly 분기
+        4. get_pose_by_id로 X, Y, Z, YAW 반환
+
+        반환:
+            result dict
+
+            성공:
+            {
+                "success": True,
+                "target_id": int,
+                "class_name": str,
+                "x_mm": float,
+                "y_mm": float,
+                "z_mm": float,
+                "yaw_deg": float
+            }
+
+            실패:
+            {
+                "success": False,
+                "target_id": int,
+                "class_name": str or None,
+                "reason": str
+            }
+        """
+
+        # ------------------------------------------------------------
+        # 0. ID 그룹 정의
+        # ------------------------------------------------------------
+        BRICK_IDS = {
+            1, 2, 3, 4,
+            5, 6, 7, 8
+        }
+
+        COMPONENT_IDS = {
+            13,     # Magnet
+            34,     # Battery
+            81,     # Estop
+            241,    # Trafficlight
+            442,    # carrot
+            462,    # small tree
+            711,    # hammer
+            4482,   # bigcarrot
+            8518,   # burger
+            46262,  # bigtree
+            48132   # icecream
+        }
+
+        # ------------------------------------------------------------
+        # 1. target_id 정리
         # ------------------------------------------------------------
         try:
-            pose = ivl.get_nearest_6d_pose_by_class(
-                class_index=self.class_index,
-                target_class_name=target_class_name,
-                local_id=local_id
+            target_id = int(target_id)
+        except Exception:
+            print(f"[ERROR] target_id를 int로 변환할 수 없습니다: {target_id}")
+            return {
+                "success": False,
+                "target_id": None,
+                "class_name": None,
+                "reason": "target_id int 변환 실패"
+            }
+
+        # ------------------------------------------------------------
+        # 2. ID -> class name 변환
+        # ------------------------------------------------------------
+        target_class_name = self.id_to_class.get(target_id)
+
+        if target_class_name is None:
+            print(f"[ERROR] 등록되지 않은 ID 번호입니다: {target_id}")
+            print(f"[INFO] 등록된 ID 목록: {list(self.id_to_class.keys())}")
+            return {
+                "success": False,
+                "target_id": target_id,
+                "class_name": None,
+                "reason": "등록되지 않은 ID"
+            }
+
+        print(f"\n[INFO] target_id={target_id} -> class='{target_class_name}'")
+
+        # ------------------------------------------------------------
+        # 3. 카메라 캡처
+        # ------------------------------------------------------------
+        self.capture_camera(
+            mode=camera_mode,
+            V_visualize=V_visualize_capture
+        )
+
+        # ------------------------------------------------------------
+        # 4. ID 그룹에 따라 Search 분기
+        # ------------------------------------------------------------
+        if target_id in BRICK_IDS:
+            print(f"[VISION] 일반 브릭 탐색 실행: ID={target_id}, class={target_class_name}")
+
+            self.run_search(
+                mode=brick_search_mode,
+                V_visualize=V_visualize_search
             )
-        except Exception as e:
-            # 888이나 999는 여기서 못 찾고 2-B로 넘어갑니다.
-            pass
 
-        # ------------------------------------------------------------
-        # 2-B. assembly / assembly_fine 모드용 직접 검색 fallback
-        # ------------------------------------------------------------
-        if pose is None:
-            if target_class_name in self.class_index:
-                pose_list = self.class_index[target_class_name]
+        elif target_id in COMPONENT_IDS:
+            print(f"[VISION] 컴포넌트 YOLO-Seg 탐색 실행: ID={target_id}, class={target_class_name}")
 
-                if local_id < len(pose_list):
-                    pose = pose_list[local_id]
-                else:
-                    print(f"[WARNING] '{target_class_name}' 객체는 {len(pose_list)}개만 있습니다. 요청 local_id={local_id}")
-                    return None
-            else:
-                print(f"[WARNING] class_index 안에 '{target_class_name}' 클래스가 없습니다.")
-                return None
-
-        # ------------------------------------------------------------
-        # 3. 결과 출력 및 반환
-        # ------------------------------------------------------------
-        if pose is not None:
-            x = pose.get("x_mm", None)
-            y = pose.get("y_mm", None)
-            z = pose.get("z_mm", None)
-
-            roll = pose.get("roll_deg", 0.0)
-            pitch = pose.get("pitch_deg", 0.0)
-            yaw = pose.get("yaw_deg", 0.0)
-
-            print("--- 6D Pose Result ---")
-            print(f"class: {pose.get('class_name', target_class_name)}")
-            print(f"local_id: {pose.get('local_id', local_id)}")
-            print(f"global_idx: {pose.get('global_idx', 'N/A')}")
-
-            if x is not None and y is not None and z is not None:
-                print(f"XYZ mm: {x:.1f}, {y:.1f}, {z:.1f}")
-            else:
-                print("XYZ mm: N/A")
-
-            print(f"RPY deg: {roll:.2f}, {pitch:.2f}, {yaw:.2f}")
-
-            # --------------------------------------------------------
-            # [NEW] ID 888 (assembly_fine) 전용 고급 정보 추가 출력
-            # --------------------------------------------------------
-            if target_id == 888:
-                print("--- Additional Info (Fine Mode) ---")
-                # print(f"Object Height : {pose.get('object_height_mm', 0.0):.1f} mm")
-                # print(f"Top Surface Z : {pose.get('top_z_mm', 0.0):.1f} mm")
-                print(f"Aspect Ratio  : {pose.get('aspect_ratio', 1.0):.2f}")
-
-            print("----------------------")
-
-            return pose
+            self.run_search_assembly(
+                V_visualize=V_visualize_search
+            )
 
         else:
-            print(f"[WARNING] 시야에서 '{target_class_name}' 객체를 찾을 수 없습니다.")
-            return None
+            print(f"[ERROR] 탐색 분기 미지정 ID입니다: {target_id}")
+
+            return {
+                "success": False,
+                "target_id": target_id,
+                "class_name": target_class_name,
+                "reason": "탐색 분기 미지정 ID"
+            }
+
+        # ------------------------------------------------------------
+        # 5. Search 결과에서 pose 추출
+        # ------------------------------------------------------------
+        X, Y, Z, YAW = self.get_pose_by_id(
+            target_id=target_id,
+            local_id=local_id
+        )
+
+        if X is None or Y is None or Z is None or YAW is None:
+            print(f"[WARNING] 시야에서 타겟을 찾지 못했습니다: ID={target_id}, class={target_class_name}")
+
+            return {
+                "success": False,
+                "target_id": target_id,
+                "class_name": target_class_name,
+                "reason": "pose 추출 실패"
+            }
+
+        # ------------------------------------------------------------
+        # 6. 성공 결과 반환
+        # ------------------------------------------------------------
+        result = {
+            "success": True,
+            "target_id": target_id,
+            "class_name": target_class_name,
+            "x_mm": float(X),
+            "y_mm": float(Y),
+            "z_mm": float(Z),
+            "yaw_deg": float(YAW)
+        }
+
+        print("[VISION] run_pipeline_by_id 결과")
+        print(
+            f"  ID={target_id}, class={target_class_name}, "
+            f"X={X:.1f}mm, Y={Y:.1f}mm, Z={Z:.1f}mm, Yaw={YAW:.2f}deg"
+        )
+
+        return result
 
 
 
@@ -252,17 +330,16 @@ class VisionManager:
 # if __name__ == "__main__":
 #     print("\n[INFO] ivc.py 라이브러리 단독 테스트 모드 실행\n")
     
-#     # ---------------------------------------------------------
-#     # 테스트 방법 1: 클래스를 이용한 깔끔한 테스트
-#     # ---------------------------------------------------------
 #     vision = VisionManager()
     
 #     try:
-#         vision.capture_camera(visualize=False)
-#         vision.run_search(visualize=False)
+#         vision.capture_camera(V_visualize=False)
+
+#         vision.run_search(mode='fine', V_visualize=True)
+
+#         # vision.run_search_assembly(V_visualize=True)
         
-#         # 4x2_blue (ID 7) 찾기 테스트
-#         test_pose = vision.get_pose_by_id(target_id=7, local_id=0)
+#         test_pose = vision.get_pose_by_id(target_id=7)
         
 #         if test_pose:
 #             print("클래스를 이용한 포즈 추출 성공!")
@@ -271,28 +348,8 @@ class VisionManager:
 #         print(f"[ERROR] 테스트 중 오류 발생: {e}")
 
 
-
-
-# # ==========================================
-# # 5. 단독 실행용 테스트 코드_조립체
-# # ==========================================
-# if __name__ == "__main__":
-#     print("\n[INFO] ivc.py 라이브러리 단독 테스트 모드 실행\n")
-
-#     vision = VisionManager()
-
-#     vision.capture_camera(mode="mid_50", visualize=True)
-
-#     pose_table, class_index = vision.run_search_assembly(
-#         visualize=False,
-#         object_min_plane_dist=0.010,
-#         min_contour_area=80
-#     )
-
-#     pose = vision.get_pose_by_id(target_id=999, local_id=0)
-
 # ==========================================
-# 6. 단독 실행용 테스트 코드
+# 4. 단독 실행용 테스트 코드
 # ==========================================
 if __name__ == "__main__":
     print("\n[INFO] ivc.py 라이브러리 단독 테스트 모드 실행\n")
@@ -300,22 +357,33 @@ if __name__ == "__main__":
     vision = VisionManager()
     
     try:
-        # 카메라 한 번 켜고
-        vision.capture_camera(visualize=False)
-        
-        # 888을 호출하면 내부에서 자동으로 run_search_assembly_fine(visualize=True) 동작!
-        test_pose = vision.get_pose_by_id(target_id=888, local_id=0, visualize=True)
-        
-        if test_pose:
-            print("✅ 888 포즈 추출 성공!")
+        # 테스트할 ID
+        # 1~8: 브릭
+        # 13, 34, 81 ...: 컴포넌트
+        # TEST_TARGET_ID = 7
+        TEST_TARGET_ID = 13
 
-            x = test_pose.get("x_mm", None)
-            y = test_pose.get("y_mm", None)
-            z = test_pose.get("z_mm", None)
-
-            yaw = test_pose.get("yaw_deg", 0.0)
-            print(f"XYZ mm: {x:.1f}, {y:.1f}, {z:.1f}")
-            print(f"RPY deg: {yaw:.2f}")
+        result = vision.run_pipeline_by_id(
+            target_id=TEST_TARGET_ID,
+            local_id=0,
+            camera_mode="mid_50",
+            brick_search_mode="fine",
+            V_visualize_capture=False,
+            V_visualize_search=True
+        )
+        
+        if result["success"]:
+            print("클래스를 이용한 포즈 추출 성공!")
+            print(f"target_id : {result['target_id']}")
+            print(f"class     : {result['class_name']}")
+            print(f"X mm      : {result['x_mm']:.1f}")
+            print(f"Y mm      : {result['y_mm']:.1f}")
+            print(f"Z mm      : {result['z_mm']:.1f}")
+            print(f"Yaw deg   : {result['yaw_deg']:.2f}")
+        else:
+            print("클래스를 이용한 포즈 추출 실패")
+            print(f"reason: {result.get('reason')}")
             
     except Exception as e:
         print(f"[ERROR] 테스트 중 오류 발생: {e}")
+

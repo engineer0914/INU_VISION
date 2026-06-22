@@ -14,8 +14,8 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='scr',
-    maintainer_email='scr@todo.todo',
+    maintainer='dsp',
+    maintainer_email='dsp@todo.todo',
     description='Vision package',
     license='Apache-2.0',
     extras_require={
@@ -27,6 +27,9 @@ setup(
         ],
     },
     package_data={
-        package_name: ['models/*.pt'],
+        package_name: [
+            'yolo_models/Block_m_ver1.0/Block_s_ver1.0/best.pt',
+            'yolo_models/Component_Model_ver1.0/Model_s_ver2.0/best.pt'
+                       ],
     },
 )
