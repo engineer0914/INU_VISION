@@ -1,4 +1,7 @@
-import INUVisionLib as ivl
+import os
+from vision_pkg import INUVisionLib as ivl
+
+_PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class VisionManager:
     def __init__(self):
@@ -12,9 +15,8 @@ class VisionManager:
 
         self.target = None
 
-        self.yolo_dir_component = 'yolo_models/Component_Model_ver1.0/Model_s_ver2.0/best.pt'
-        self.yolo_dir_brick = 'yolo_models/Block_m_ver1.0/Block_s_ver1.0/weights/best.pt'
-
+        self.yolo_dir_component = os.path.join(_PKG_DIR, 'yolo_models', 'Component_Model_ver1.0', 'Model_s_ver2.0', 'best.pt')
+        self.yolo_dir_brick = os.path.join(_PKG_DIR, 'yolo_models', 'Block_m_ver1.0', 'Block_s_ver1.0', 'weights', 'best.pt')
         self.id_to_class = {
             1: "2x2_red", 
             2: "2x2_green", 
@@ -147,10 +149,23 @@ class VisionManager:
 
         # ------------------------------------------------------------
         # 3. class_index에서 target_class_name 찾기
+        #    YOLO 모델 클래스명과 대소문자가 다를 수 있으므로
+        #    소문자로 변환하여 매칭
         # ------------------------------------------------------------
+        matched_key = None
+        for key in self.class_index.keys():
+            if key.lower().replace(" ", "") == target_class_name.lower().replace(" ", ""):
+                matched_key = key
+                break
+
+        if matched_key is None:
+            print(f"🚨 시야에 [{target_class_name}] 블록이 없습니다.")
+            print(f"👉 현재 감지된 클래스 목록: {list(self.class_index.keys())}")
+            return None, None, None, None
+
         X, Y, Z, YAW = ivl.get_target_grasp_pose(
             self.class_index,
-            target_class_name
+            matched_key
         )
 
         return X, Y, Z, YAW
@@ -386,4 +401,3 @@ if __name__ == "__main__":
             
     except Exception as e:
         print(f"[ERROR] 테스트 중 오류 발생: {e}")
-

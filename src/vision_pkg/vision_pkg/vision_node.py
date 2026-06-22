@@ -1,7 +1,7 @@
 # vision_node.py
 import rclpy
 from rclpy.node import Node
-from srvs_pkg.srv import GetTargetPose
+from arm_interfaces.srv import GetTargetPose
 from vision_pkg import INUVisionCall as ivc
 
 class VisionNode(Node):
