@@ -1,4 +1,5 @@
 import os
+# import INUVisionLib as ivl
 from vision_pkg import INUVisionLib as ivl
 
 _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -33,14 +34,14 @@ class VisionManager:
             13: "Magnet",
             34: "Battery",
             81: "Estop",
-            241: "Trafficlight",
-            442: "carrot",
-            462: "small tree",
-            711: "hammer",
-            4482: "bigcarrot",
-            8518: "burger",
-            46262: "bigtree",
-            48132: "icecream"
+            241: "TrafficLight",
+            442: "Carrot",
+            462: "SmallTree",
+            711: "Hammer",
+            4482: "BigCarrot",
+            8518: "Burger",
+            46262: "BigTree",
+            48132: "IceCream"
         }
 
 
@@ -110,6 +111,68 @@ class VisionManager:
                                                                 # depth 검사
                                                                 min_valid_depth_points=30
                                                             )
+
+        return self.pose_table, self.class_index
+
+    def run_search_assembly_9(
+        self,
+        visualize=False,
+        class_name="assembly",
+        ransac_distance_threshold=0.006,
+        object_min_plane_dist=0.010,
+        min_area_px=80,
+        morph_open_ksize=3,
+        morph_close_ksize=5,
+        min_contour_area=80
+    ):
+        print("[INFO] 조립체 객체 탐색(Search Assembly) 실행 중...")
+
+        if self.color_rgb is None:
+            raise RuntimeError("카메라 데이터가 없습니다. 먼저 capture_camera()를 실행하세요.")
+
+        self.pose_table, self.class_index = ivl.search_assembly_9(
+            color_rgb=self.color_rgb,
+            depth=self.depth,
+            intrinsics=self.intrinsics,
+            scale=self.scale,
+            V_visualize=visualize,
+            class_name=class_name,
+            ransac_distance_threshold=ransac_distance_threshold,
+            object_min_plane_dist=object_min_plane_dist,
+            min_area_px=min_area_px,
+            morph_open_ksize=morph_open_ksize,
+            morph_close_ksize=morph_close_ksize,
+            min_contour_area=min_contour_area
+        )
+
+        return self.pose_table, self.class_index
+
+    def run_search_assembly_8(self, visualize=False):
+        print("[INFO] 정밀 조립체 객체 탐색(Search Assembly Fine) 실행 중...")
+
+        if self.color_rgb is None:
+            raise RuntimeError("카메라 데이터가 없습니다. 먼저 capture_camera()를 실행하세요.")
+
+        result_img, target_pose_info = ivl.search_assembly_8(
+            color_rgb=self.color_rgb,
+            depth=self.depth,
+            intrinsics=self.intrinsics,
+            scale=self.scale,
+            V_visualize=visualize
+        )
+
+        # 기존 pose_table, class_index 포맷에 맞게 래핑하여 저장
+        if target_pose_info is not None:
+            # 기존 get_pose_by_id와 호환되도록 필수 필드 추가
+            target_pose_info["class_name"] = "assembly_fine"
+            target_pose_info["local_id"] = 0
+            target_pose_info["global_idx"] = 0
+
+            self.pose_table = [target_pose_info]
+            self.class_index = {"assembly_fine": [target_pose_info]}
+        else:
+            self.pose_table = []
+            self.class_index = {}
 
         return self.pose_table, self.class_index
 
@@ -288,6 +351,13 @@ class VisionManager:
                 V_visualize=V_visualize_search
             )
 
+        elif target_id == 999:
+            print('[VISION] 조립체(ID:999) 탐색 모드 실행')
+            self.run_search_assembly_9(visualize=True)
+        elif target_id == 888:
+            print('[VISION] 조립체(ID:888) 탐색 모드 실행')
+            self.run_search_assembly_8(visualize=True)
+
         else:
             print(f"[ERROR] 탐색 분기 미지정 ID입니다: {target_id}")
 
@@ -376,7 +446,7 @@ if __name__ == "__main__":
         # 1~8: 브릭
         # 13, 34, 81 ...: 컴포넌트
         # TEST_TARGET_ID = 7
-        TEST_TARGET_ID = 13
+        TEST_TARGET_ID = 888
 
         result = vision.run_pipeline_by_id(
             target_id=TEST_TARGET_ID,

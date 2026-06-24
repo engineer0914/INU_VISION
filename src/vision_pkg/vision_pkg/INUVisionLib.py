@@ -5711,7 +5711,208 @@ def search_assembly(
 
     return pose_table, class_index
 
-def search_assembly_fine(color_rgb, depth, intrinsics, scale, V_visualize=True):
+
+def search_assembly_9(
+    color_rgb,
+    depth,
+    intrinsics,
+    scale,
+    V_visualize=True,
+    class_name="assembly",
+    ransac_distance_threshold=0.006,
+    object_min_plane_dist=0.010,
+    min_area_px=80,
+    morph_open_ksize=3,
+    morph_close_ksize=5,
+    min_contour_area=80
+):
+    """
+    조립체 / 덩어리 검출용 Search 함수.
+
+    목적:
+    - YOLO 없이 depth 기준으로 바닥 plane 제거
+    - 바닥보다 object_min_plane_dist 이상 튀어나온 영역을 object_mask로 생성
+    - object_mask contour별 PCA 수행
+    - 각 덩어리의 중심 XYZ + yaw 반환
+    - 반환 구조는 search_wide()처럼 pose_table, class_index 형태로 맞춤
+
+    반환:
+    - pose_table: list[dict]
+    - class_index: dict[str, list[dict]]
+    """
+
+    if color_rgb is None or depth is None or intrinsics is None or scale is None:
+        raise RuntimeError("RealSense 캡처 실패: color/depth/intrinsics/scale 중 None이 있습니다.")
+
+    depth_img = depth.copy()
+    color_img_rgb = color_rgb.copy()
+    depth_scale = scale
+
+    # ------------------------------------------------------------
+    # 1. RANSAC 바닥 제거 + object mask 생성
+    # ------------------------------------------------------------
+    result = extract_object_components_with_pca(
+        depth_img=depth_img,
+        depth_scale=depth_scale,
+        intrinsics=intrinsics,
+        color_img_rgb=color_img_rgb,
+
+        # assembly 모드는 YOLO 없이 depth 덩어리만 사용
+        and_mask=None,
+
+        median_ksize=3,
+        ransac_distance_threshold=ransac_distance_threshold,
+        object_min_plane_dist=object_min_plane_dist,
+        min_area_px=min_area_px,
+        morph_open_ksize=morph_open_ksize,
+        morph_close_ksize=morph_close_ksize,
+        show=False,
+        visualize=False
+    )
+
+    object_mask = result["object_mask"]
+    xyz_map = result["xyz_map"]
+    valid_mask = result["valid_mask"]
+    floor_mask = result["floor_mask"]
+    plane_dist_map = result["plane_dist_map"]
+
+    # ------------------------------------------------------------
+    # 2. Contour 기준 PCA 추출
+    # ------------------------------------------------------------
+    contour_objects = extract_contour_pca_from_mask(
+        object_mask=object_mask,
+        xyz_map=xyz_map,
+        valid_mask=valid_mask,
+        min_contour_area=min_contour_area
+    )
+
+    print("\n[INFO] assembly contour object count:", len(contour_objects))
+
+    # ------------------------------------------------------------
+    # 3. 시각화
+    # ------------------------------------------------------------
+    if V_visualize:
+        vis_contour_pca = visualize_contour_pca_axes(
+            color_img_rgb=color_img_rgb,
+            object_mask=object_mask,
+            contour_objects=contour_objects,
+            draw_mask=True,
+            draw_contour=True,
+            draw_min_rect=True,
+            axis_len_mode="pca_length",
+            fixed_axis_len=80
+        )
+
+        plt.figure(figsize=(8, 6))
+        plt.imshow(vis_contour_pca)
+        plt.title("Assembly Depth Blob PCA")
+        plt.axis("off")
+        plt.show()
+
+        plt.figure(figsize=(7, 5))
+        plt.imshow(object_mask, cmap="gray")
+        plt.title("RANSAC Assembly Object Mask")
+        plt.axis("off")
+        plt.show()
+
+        plt.figure(figsize=(7, 5))
+        plt.imshow(plane_dist_map * 1000.0, cmap="jet")
+        plt.colorbar(label="Distance from RANSAC plane [mm]")
+        plt.title("Plane Distance Map [mm]")
+        plt.axis("off")
+        plt.show()
+
+    # ------------------------------------------------------------
+    # 4. pose_table / class_index 생성
+    # ------------------------------------------------------------
+    pose_table = []
+
+    def normalize_yaw_deg_180(angle_deg):
+        """
+        yaw를 [-180, 180) 범위로 정규화
+        """
+        yaw = (float(angle_deg) + 180.0) % 360.0 - 180.0
+        return yaw
+
+    for global_idx, obj in enumerate(contour_objects):
+        if "center_xyz" not in obj:
+            print(f"[SKIP] assembly idx {global_idx}: center_xyz 없음")
+            continue
+
+        center_xyz_m = np.asarray(obj["center_xyz"], dtype=np.float64)
+        center_xyz_mm = center_xyz_m * 1000.0
+
+        # 2D contour PCA 기준 yaw
+        yaw_deg = normalize_yaw_deg_180(obj.get("angle_deg", 0.0))
+
+        # assembly 모드는 바닥 기준 덩어리이므로 roll/pitch는 일단 0으로 둠
+        # 나중에 plane normal 기반으로 확장 가능
+        roll_deg = 0.0
+        pitch_deg = 0.0
+
+        pose = {
+            # search_wide 결과와 맞추기 위한 공통 필드
+            "class_name": class_name,
+            "local_id": global_idx,
+            "global_idx": global_idx,
+
+            "x_mm": float(center_xyz_mm[0]),
+            "y_mm": float(center_xyz_mm[1]),
+            "z_mm": float(center_xyz_mm[2]),
+
+            "roll_deg": float(roll_deg),
+            "pitch_deg": float(pitch_deg),
+            "yaw_deg": float(yaw_deg),
+
+            # 디버그 / 확장용 필드
+            "center_mm": center_xyz_mm,
+            "center_xyz": center_xyz_m,
+            "center_uv": obj.get("center_uv", None),
+
+            "major_axis_uv": obj.get("major_axis_uv", None),
+            "minor_axis_uv": obj.get("minor_axis_uv", None),
+            "angle_deg": obj.get("angle_deg", None),
+
+            "major_axis_xyz": obj.get("major_axis_xyz", None),
+            "middle_axis_xyz": obj.get("middle_axis_xyz", None),
+            "minor_axis_xyz": obj.get("minor_axis_xyz", None),
+
+            "major_length_mm": float(obj.get("major_length_m", 0.0) * 1000.0)
+                if "major_length_m" in obj else None,
+            "middle_length_mm": float(obj.get("middle_length_m", 0.0) * 1000.0)
+                if "middle_length_m" in obj else None,
+            "minor_length_mm": float(obj.get("minor_length_m", 0.0) * 1000.0)
+                if "minor_length_m" in obj else None,
+
+            # 원본 contour object도 필요하면 추적 가능
+            "raw_contour_object": obj
+        }
+
+        pose_table.append(pose)
+
+    # 가까운 순서로 정렬하고 local_id 다시 부여
+    # 기본 기준: 카메라 Z가 작은 것, 즉 카메라에 가까운 덩어리 우선
+    pose_table = sorted(pose_table, key=lambda p: p["z_mm"])
+
+    for local_id, pose in enumerate(pose_table):
+        pose["local_id"] = local_id
+
+    class_index = {
+        class_name: pose_table
+    }
+
+    print("\n[Assembly Pose Table]")
+    for pose in pose_table:
+        print(
+            f"local_id {pose['local_id']:02d} | {pose['class_name']:12s} | "
+            f"XYZ mm=({pose['x_mm']:7.1f}, {pose['y_mm']:7.1f}, {pose['z_mm']:7.1f}) | "
+            f"RPY deg=({pose['roll_deg']:7.2f}, {pose['pitch_deg']:7.2f}, {pose['yaw_deg']:7.2f})"
+        )
+
+    return pose_table, class_index
+
+
+def search_assembly_8(color_rgb, depth, intrinsics, scale, V_visualize=True):
     img_rgb = color_rgb.copy()
     # 1. 원본 이미지 복사 및 타입 안전성 확보
     if img_rgb.dtype != np.uint8:
@@ -5731,7 +5932,7 @@ def search_assembly_fine(color_rgb, depth, intrinsics, scale, V_visualize=True):
     # 0-3. 바닥 평면으로부터의 Z축 거리(높이) 계산
     dist_map = compute_plane_distance_map(xyz_map, valid_mask, best_plane)
 
-    # 0-4. 바닥에서 1cm(0.01m) 이상 튀어나온 영역만 마스킹 (1cm 미만은 바닥으로 간주)
+# 0-4. 바닥에서 1cm(0.01m) 이상 튀어나온 영역만 마스킹 (1cm 미만은 바닥으로 간주)
     ransac_mask = (dist_map > 0.010).astype(np.uint8) * 255
     
     # 노이즈를 살짝 지워주기 위해 모폴로지 열기(Open) 적용
@@ -6033,3 +6234,5 @@ def search_assembly_fine(color_rgb, depth, intrinsics, scale, V_visualize=True):
         plt.show()
 
     return result_img, target_pose_info
+
+
