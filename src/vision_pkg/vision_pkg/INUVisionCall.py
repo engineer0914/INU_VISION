@@ -44,7 +44,6 @@ class VisionManager:
             48132: "IceCream"
         }
 
-
     def capture_camera(self, mode="mid_50", V_visualize=False):
 
         devices = ivl.get_realsense_ids()
@@ -91,13 +90,13 @@ class VisionManager:
                                                                 self.intrinsics,
                                                                 self.scale,
                                                                 yolo_model=None,
-                                                                yolo_dir=self.yolo_dir_component,
-                                                                V_visualize=V_visualize,
+                                                                yolo_dir=None,
+                                                                V_visualize=True,
 
                                                                 # YOLO 설정
-                                                                target_classes=None,
-                                                                target_class_names=None,
-                                                                conf_thres=0.7,
+                                                                target_classes=None,       # 숫자 class id 리스트. 예: [0, 1, 2], None이면 전체
+                                                                target_class_names=None,   # 문자열 class name 리스트. 예: ["Magnet"], None이면 전체
+                                                                conf_thres=0.5,
                                                                 iou_thres=0.3,
                                                                 imgsz=640,
                                                                 device=0,
@@ -109,7 +108,16 @@ class VisionManager:
                                                                 min_contour_area=80,
 
                                                                 # depth 검사
-                                                                min_valid_depth_points=30
+                                                                min_valid_depth_points=30,
+
+                                                                # SmallTree 특수 처리
+                                                                smalltree_class_id=5,
+                                                                use_smalltree_minarea=True,
+
+                                                                # 클래스별 색상 top 방향 보정
+                                                                use_class_color_top=True,
+                                                                class_color_pose_config=None,
+                                                                color_top_verbose=True
                                                             )
 
         return self.pose_table, self.class_index
@@ -354,6 +362,7 @@ class VisionManager:
         elif target_id == 999:
             print('[VISION] 조립체(ID:999) 탐색 모드 실행')
             self.run_search_assembly_9(visualize=True)
+
         elif target_id == 888:
             print('[VISION] 조립체(ID:888) 탐색 모드 실행')
             self.run_search_assembly_8(visualize=True)
