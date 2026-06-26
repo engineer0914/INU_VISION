@@ -5483,6 +5483,13 @@ def apply_minarea_pose_to_contour_obj(
     # 여기서는 y 음수 방향, 즉 12시 방향을 yaw 0도로 둔다.
     # 오른쪽으로 기울면 +, 왼쪽으로 기울면 -.
     # ------------------------------------------------------------
+    def normalize_yaw_deg_90(yaw_deg):
+        """
+        -90 ~ +90 범위로 정규화
+        180도 대칭 물체 기준.
+        """
+        return (float(yaw_deg) + 90.0) % 180.0 - 90.0
+    
     if yaw_zero_axis == "up":
         yaw_from_12_cw = np.degrees(np.arctan2(
             major_vec[0],
