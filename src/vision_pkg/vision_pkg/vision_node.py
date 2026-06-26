@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node
 
 # from arm_interfaces.srv import GetTargetPose
-# from srvs_pkg.srv import GetTargetPose
+from srvs_pkg.srv import GetTargetPose
 
 from vision_pkg import INUVisionCall as ivc
 
@@ -37,7 +37,7 @@ class VisionNode(Node):
                 camera_mode="mid_50",
                 brick_search_mode="fine",
                 V_visualize_capture=False,
-                V_visualize_search=True
+                V_visualize_search=False
             )
 
             if result["success"]:

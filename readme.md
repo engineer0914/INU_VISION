@@ -22,9 +22,10 @@ ros2 service call /get_target_pose arm_interfaces/srv/GetTargetPose "{target_col
 
 
 **단일 브릭의 포지션 + yaw 값**
+
 ID 1~8까지 호출 가능 color에 id로 호출
-카메라내 12시 방향을 기준으로 단축의 방향을 반환
--90~90도
+
+카메라내 12시 방향을 기준으로 단축의 방향을 반환 : -90~90도
 ```
 ros2 service call /get_target_pose arm_interfaces/srv/GetTargetPose "{target_color: '1'}"
 ```

@@ -90,8 +90,8 @@ class VisionManager:
                                                                 self.intrinsics,
                                                                 self.scale,
                                                                 yolo_model=None,
-                                                                yolo_dir=None,
-                                                                V_visualize=True,
+                                                                yolo_dir=self.yolo_dir_component,
+                                                                V_visualize=V_visualize,
 
                                                                 # YOLO 설정
                                                                 target_classes=None,       # 숫자 class id 리스트. 예: [0, 1, 2], None이면 전체

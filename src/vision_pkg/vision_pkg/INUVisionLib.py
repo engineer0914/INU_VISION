@@ -6699,7 +6699,7 @@ def search_assembly(
     scale,
     yolo_model=None,
     yolo_dir=None,
-    V_visualize=True,
+    V_visualize=None,
 
     # YOLO 설정
     target_classes=None,       # 숫자 class id 리스트. 예: [0, 1, 2], None이면 전체
@@ -6823,7 +6823,7 @@ def search_assembly(
     # ------------------------------------------------------------
     # 3. depth -> xyz_map 생성
     # ------------------------------------------------------------
-    xyz_map, valid_mask = ivl.depth_to_xyz_map(
+    xyz_map, valid_mask = depth_to_xyz_map(
         depth_img=depth_img,
         depth_scale=depth_scale,
         intrinsics=intrinsics
@@ -6867,7 +6867,7 @@ def search_assembly(
         combined_mask = cv2.bitwise_or(combined_mask, instance_mask)
 
         # 이 YOLO instance mask 안에서 contour PCA 수행
-        contour_objects = ivl.extract_contour_pca_from_mask(
+        contour_objects = extract_contour_pca_from_mask(
             object_mask=instance_mask,
             xyz_map=xyz_map,
             valid_mask=valid_mask,
@@ -7096,7 +7096,7 @@ def search_assembly(
         plt.show()
 
         if len(all_contour_objects_for_vis) > 0:
-            vis_contour_pca = ivl.visualize_contour_pca_axes(
+            vis_contour_pca = visualize_contour_pca_axes(
                 color_img_rgb=color_img_rgb,
                 object_mask=combined_mask,
                 contour_objects=all_contour_objects_for_vis,
@@ -7134,24 +7134,25 @@ def search_assembly(
     # ------------------------------------------------------------
     # 8. 출력 확인
     # ------------------------------------------------------------
-    print("\n[YOLO Class Pose Table]")
-    for pose in pose_table:
-        print(
-            f"global {pose['global_idx']:02d} | "
-            f"local {pose['local_id']:02d} | "
-            f"{pose['class_name']:16s} | "
-            f"method={pose.get('pose_method', 'pca'):18s} | "
-            f"conf={pose['confidence']:.2f} | "
-            f"XYZ mm=({pose['x_mm']:7.1f}, {pose['y_mm']:7.1f}, {pose['z_mm']:7.1f}) | "
-            f"YAW={pose['yaw_deg']:7.2f} | "
-            f"axis={pose.get('color_axis', None)} | "
-            f"top={pose.get('top_color', None)}:{pose.get('top_side', None)} | "
-            f"score={pose.get('color_top_score', None)}"
-        )
+    if V_visualize:
+        print("\n[YOLO Class Pose Table]")
+        for pose in pose_table:
+            print(
+                f"global {pose['global_idx']:02d} | "
+                f"local {pose['local_id']:02d} | "
+                f"{pose['class_name']:16s} | "
+                f"method={pose.get('pose_method', 'pca'):18s} | "
+                f"conf={pose['confidence']:.2f} | "
+                f"XYZ mm=({pose['x_mm']:7.1f}, {pose['y_mm']:7.1f}, {pose['z_mm']:7.1f}) | "
+                f"YAW={pose['yaw_deg']:7.2f} | "
+                f"axis={pose.get('color_axis', None)} | "
+                f"top={pose.get('top_color', None)}:{pose.get('top_side', None)} | "
+                f"score={pose.get('color_top_score', None)}"
+            )
 
-    print("\n[YOLO Class Index]")
-    for cname, poses in class_index.items():
-        print(f"{cname}: {len(poses)}개")
+        print("\n[YOLO Class Index]")
+        for cname, poses in class_index.items():
+            print(f"{cname}: {len(poses)}개")
 
     # ------------------------------------------------------------
     # class_index 생성
